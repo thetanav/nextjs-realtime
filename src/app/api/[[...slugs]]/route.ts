@@ -34,11 +34,15 @@ const rooms = new Elysia({
 
 const authenticatedRooms = new Elysia({ prefix: "/room" })
   .use(authMiddleware)
-  .get("/sudo", async ({ auth }) => {
-    const meta = await redis.hget(`meta:${auth.roomId}`, "owner");
-    if (auth.token == meta) return { owner: true };
-    return { owner: false };
-  })
+  .get(
+    "/sudo",
+    async ({ auth }) => {
+      const meta = await redis.hget(`meta:${auth.roomId}`, "owner");
+      if (auth.token == meta) return { owner: true };
+      return { owner: false };
+    },
+    { query: z.object({ roomId: z.string() }) }
+  )
   .get(
     "/ttl",
     async ({ auth }) => {

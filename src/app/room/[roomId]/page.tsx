@@ -35,10 +35,9 @@ const Page = () => {
   });
 
   const { data: isSudo } = useQuery({
-    queryKey: ["meta", roomId],
+    queryKey: ["sudo", roomId],
     queryFn: async () => {
-      const res = await client.room.sudo.get();
-      console.log("isSudo", res.data);
+      const res = await client.room.sudo.get({ query: { roomId } });
       return res.data;
     },
   });
