@@ -20,7 +20,7 @@ export const proxy = async (req: NextRequest) => {
 
   const existingToken = req.cookies.get("x-auth-token")?.value;
 
-  // USER IS ALLOWED TO JOIN ROOM
+  // USER OR OWNER IS ALLOWED TO JOIN ROOM
   if (existingToken && meta.connected.includes(existingToken)) {
     return NextResponse.next();
   }
@@ -32,22 +32,18 @@ export const proxy = async (req: NextRequest) => {
 
   const response = NextResponse.next();
 
-  if (existingToken !== undefined) {
-    return NextResponse.next();
-  }
+  // const token = nanoid();
 
-  const token = nanoid();
+  // response.cookies.set("x-auth-token", token, {
+  //   path: "/",
+  //   httpOnly: true,
+  //   secure: process.env.NODE_ENV === "production",
+  //   sameSite: "strict",
+  // });
 
-  response.cookies.set("x-auth-token", token, {
-    path: "/",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-  });
-
-  await redis.hset(`meta:${roomId}`, {
-    connected: [...meta.connected, token],
-  });
+  // await redis.hset(`meta:${roomId}`, {
+  //   connected: [...meta.connected, token],
+  // });
 
   return response;
 };

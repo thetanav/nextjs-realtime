@@ -5,32 +5,70 @@ import { authMiddleware } from "./auth";
 import { z } from "zod";
 import { Message, realtime } from "@/lib/realtime";
 
-const ROOM_TTL_SECONDS = 60 * 60;
+const ROOM_TTL_SECONDS = 10 * 60;
 
 const rooms = new Elysia({
   prefix: "/room",
-}).post("/create", async ({ cookie }) => {
-  const roomId = nanoid();
-  const ownerToken = "c-" + nanoid();
+})
+  .post("/create", async ({ cookie }) => {
+    const roomId = nanoid();
+    const ownerToken = "c-" + nanoid();
 
-  cookie["x-auth-token"].set({
-    value: ownerToken,
-    path: "/",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
-  });
+    cookie["x-auth-token"].set({
+      value: ownerToken,
+      path: "/",
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    });
 
-  await redis.hset(`meta:${roomId}`, {
-    owner: ownerToken,
-    connected: [ownerToken],
-    createdAt: Date.now(),
-  });
+    await redis.hset(`meta:${roomId}`, {
+      owner: ownerToken,
+      connected: [ownerToken],
+      createdAt: Date.now(),
+    });
 
-  await redis.expire(`meta:${roomId}`, ROOM_TTL_SECONDS);
+    await redis.expire(`meta:${roomId}`, ROOM_TTL_SECONDS);
 
-  return { roomId, ownerToken };
-});
+    return { roomId, ownerToken };
+  })
+  .post(
+    "/join",
+    async ({ body, cookie }) => {
+      const { roomId } = body;
+
+      // Check if room exists
+      const roomExists = await redis.exists(`meta:${roomId}`);
+      if (!roomExists) {
+        throw new Error("Room not found");
+      }
+
+      const userToken = "u-" + nanoid();
+
+      cookie["x-auth-token"].set({
+        value: userToken,
+        path: "/",
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+      });
+
+      const currentConnected =
+        (await redis.hget<string[]>(`meta:${roomId}`, "connected")) || [];
+      const updatedConnected = [...currentConnected, userToken];
+
+      await redis.hset(`meta:${roomId}`, {
+        connected: updatedConnected,
+      });
+
+      return { success: true, roomId, userToken };
+    },
+    {
+      body: z.object({
+        roomId: z.string(),
+      }),
+    }
+  );
 
 const authenticatedRooms = new Elysia({ prefix: "/room" })
   .use(authMiddleware)

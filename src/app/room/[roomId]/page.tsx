@@ -38,6 +38,7 @@ const Page = () => {
     queryKey: ["sudo", roomId],
     queryFn: async () => {
       const res = await client.room.sudo.get({ query: { roomId } });
+      console.log("sudo", res.data);
       return res.data;
     },
   });
@@ -153,7 +154,7 @@ const Page = () => {
           </div>
         </div>
 
-        {isSudo && (
+        {isSudo && isSudo.owner && (
           <button
             onClick={() => destroyRoom()}
             className="text-xs bg-zinc-800 hover:bg-red-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50 cursor-pointer">
