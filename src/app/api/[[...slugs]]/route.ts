@@ -169,6 +169,29 @@ const messages = new Elysia({ prefix: "/messages" })
       };
     },
     { query: z.object({ roomId: z.string() }) }
+  )
+  .delete(
+    "/",
+    async ({ body, auth }) => {
+      const { id } = body;
+
+      const meta = await redis.hget(`meta:${auth.roomId}`, "owner");
+
+      if (meta != auth.token) return { error: "Unauthorized" };
+
+      // delete message from redis with id and roomId
+      await redis.del(`messages:${auth.roomId}`, id);
+
+      await realtime.channel(auth.roomId).emit("chat.delete", { id });
+
+      return { success: true };
+    },
+    {
+      body: z.object({
+        id: z.string(),
+      }),
+      query: z.object({ roomId: z.string() }),
+    }
   );
 
 const app = new Elysia({ prefix: "/api" })

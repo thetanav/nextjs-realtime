@@ -3,7 +3,12 @@
 import { useUsername } from "@/hooks/use-username";
 import { client } from "@/lib/client";
 import { useRealtime } from "@/lib/realtime-client";
-import { IconLoader, IconSend } from "@tabler/icons-react";
+import {
+  IconLoader,
+  IconSend,
+  IconTrash,
+  IconTrashOff,
+} from "@tabler/icons-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useParams, useRouter } from "next/navigation";
@@ -94,7 +99,7 @@ const Page = () => {
 
   useRealtime({
     channels: [roomId],
-    events: ["chat.message", "chat.destroy"],
+    events: ["chat.message", "chat.destroy", "chat.delete"],
     onData: ({ event }) => {
       if (event === "chat.message") {
         refetch();
@@ -103,12 +108,22 @@ const Page = () => {
       if (event === "chat.destroy") {
         router.push("/?destroyed=true");
       }
+
+      if (event === "chat.delete") {
+        refetch();
+      }
     },
   });
 
   const { mutate: destroyRoom } = useMutation({
     mutationFn: async () => {
       await client.room.delete(null, { query: { roomId } });
+    },
+  });
+
+  const { mutate: deleteMessage } = useMutation({
+    mutationFn: async (id: string) => {
+      await client.messages.delete({ id }, { query: { roomId } });
     },
   });
 
@@ -180,7 +195,12 @@ const Page = () => {
             className={`flex flex-col ${
               msg.sender === username ? "items-end" : "items-start"
             }`}>
-            <div className="flex gap-3 mb-1">
+            <div className="flex gap-3 mb-1 items-center">
+              {isSudo && isSudo.owner && (
+                <button onClick={() => deleteMessage(msg.id)}>
+                  <IconTrash className="w-4 h-4 text-zinc-600 hover:text-zinc-400  cursor-pointer" />
+                </button>
+              )}
               <span className="text-[10px] text-zinc-600">
                 {format(msg.timestamp, "HH:mm")}
               </span>
