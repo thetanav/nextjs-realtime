@@ -1,107 +1,34 @@
-import Redis from "ioredis";
+import { Redis } from "@upstash/redis";
 
-// Singleton pattern for Redis connection pooling
-class RedisClient {
-  private static instance: Redis | null = null;
+// Initialize Upstash Redis client
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
-  static getInstance(): Redis {
-    if (!RedisClient.instance) {
-      const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-
-      RedisClient.instance = new Redis(redisUrl, {
-        maxRetriesPerRequest: 3,
-        enableReadyCheck: true,
-        enableOfflineQueue: true,
-        lazyConnect: false,
-        // Connection pool optimization
-        connectionName: "nextjs-realtime",
-        // Performance tuning
-        keepAlive: 30000,
-        connectTimeout: 10000,
-        // Retry strategy
-        retryStrategy(times: number) {
-          const delay = Math.min(times * 50, 2000);
-          return delay;
-        },
-        // Reconnect on error
-        reconnectOnError(err: Error) {
-          const targetError = "READONLY";
-          if (err.message.includes(targetError)) {
-            return true;
-          }
-          return false;
-        },
-      });
-
-      // Handle connection events
-      RedisClient.instance.on("error", (err: Error) => {
-        console.error("Redis connection error:", err);
-      });
-
-      RedisClient.instance.on("connect", () => {
-        console.log("Redis connected successfully");
-      });
-
-      RedisClient.instance.on("ready", () => {
-        console.log("Redis ready to accept commands");
-      });
-    }
-
-    return RedisClient.instance;
-  }
-
-  static async disconnect(): Promise<void> {
-    if (RedisClient.instance) {
-      await RedisClient.instance.quit();
-      RedisClient.instance = null;
-    }
-  }
-}
-
-// Helper class to provide Upstash-like API with optimizations
-class OptimizedRedisWrapper {
+// Helper class to match the previous API
+class RedisWrapper {
   private client: Redis;
 
   constructor(client: Redis) {
     this.client = client;
   }
 
-  // Optimized methods with proper JSON handling
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async hset(key: string, data: Record<string, any>): Promise<number> {
-    const pipeline = this.client.pipeline();
-    for (const [field, value] of Object.entries(data)) {
-      pipeline.hset(key, field, JSON.stringify(value));
-    }
-    const results = await pipeline.exec();
-    return results?.length || 0;
+    await this.client.hset(key, data);
+    return Object.keys(data).length;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async hget<T = any>(key: string, field: string): Promise<T | null> {
-    const value = await this.client.hget(key, field);
-    if (!value) return null;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return value as T;
-    }
+    return await this.client.hget<T>(key, field);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async hgetall<T = any>(key: string): Promise<T | null> {
-    const values = await this.client.hgetall(key);
-    if (!values || Object.keys(values).length === 0) return null;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result: Record<string, any> = {};
-    for (const [field, value] of Object.entries(values)) {
-      try {
-        result[field] = JSON.parse(value);
-      } catch {
-        result[field] = value;
-      }
-    }
+    const result = await this.client.hgetall(key);
+    if (!result || Object.keys(result).length === 0) return null;
     return result as T;
   }
 
@@ -124,8 +51,7 @@ class OptimizedRedisWrapper {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async rpush(key: string, ...values: any[]): Promise<number> {
-    const stringifiedValues = values.map((v) => JSON.stringify(v));
-    return await this.client.rpush(key, ...stringifiedValues);
+    return await this.client.rpush(key, ...values);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -134,26 +60,21 @@ class OptimizedRedisWrapper {
     start: number,
     stop: number
   ): Promise<T[]> {
-    const values = await this.client.lrange(key, start, stop);
-    return values.map((v: string) => {
-      try {
-        return JSON.parse(v) as T;
-      } catch {
-        return v as T;
-      }
-    });
+    return await this.client.lrange<T>(key, start, stop);
   }
 
-  // Optimized batch operations
+  async ltrim(key: string, start: number, stop: number): Promise<string> {
+    return await this.client.ltrim(key, start, stop);
+  }
+
+  // Optimized batch operations using pipeline
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async multiHset(
     operations: Array<{ key: string; data: Record<string, any> }>
   ): Promise<void> {
     const pipeline = this.client.pipeline();
     for (const { key, data } of operations) {
-      for (const [field, value] of Object.entries(data)) {
-        pipeline.hset(key, field, JSON.stringify(value));
-      }
+      pipeline.hset(key, data);
     }
     await pipeline.exec();
   }
@@ -182,22 +103,8 @@ class OptimizedRedisWrapper {
     return await this.client.publish(channel, message);
   }
 
-  subscribe(channel: string, callback: (message: string) => void): Redis {
-    const subscriber = this.client.duplicate();
-    subscriber.subscribe(channel);
-    subscriber.on("message", (_channel: string, message: string) => {
-      if (_channel === channel) {
-        callback(message);
-      }
-    });
-    return subscriber;
-  }
-
   // Remove message by ID from a list (searches for JSON with matching id field)
-  async lremByMessageId(
-    key: string,
-    messageId: string
-  ): Promise<number> {
+  async lremByMessageId(key: string, messageId: string): Promise<number> {
     const messages = await this.lrange<{ id: string }>(key, 0, -1);
     const updatedMessages = messages.filter((m) => m.id !== messageId);
 
@@ -208,10 +115,7 @@ class OptimizedRedisWrapper {
     // Delete the entire list and repush filtered messages
     await this.client.del(key);
     if (updatedMessages.length > 0) {
-      const stringifiedMessages = updatedMessages.map((m) =>
-        JSON.stringify(m)
-      );
-      await this.client.rpush(key, ...stringifiedMessages);
+      await this.client.rpush(key, ...updatedMessages);
     }
 
     return messages.length - updatedMessages.length;
@@ -223,5 +127,6 @@ class OptimizedRedisWrapper {
   }
 }
 
-export const redis = new OptimizedRedisWrapper(RedisClient.getInstance());
-export const getRedisClient = () => RedisClient.getInstance();
+export { redis as upstashRedis };
+export const wrappedRedis = new RedisWrapper(redis);
+export { wrappedRedis as redis };

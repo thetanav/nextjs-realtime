@@ -1,6 +1,5 @@
-import { getRedisClient } from "@/lib/redis";
+import { upstashRedis } from "@/lib/redis";
 import z from "zod";
-import type Redis from "ioredis";
 
 const message = z.object({
   id: z.string(),
@@ -25,36 +24,42 @@ const schema = {
   },
 };
 
-// Custom Realtime implementation using Redis Pub/Sub
+// Simplified Realtime implementation using Upstash Redis Pub/Sub
 class RealtimeChannel {
   private channelName: string;
-  private redisClient: Redis;
 
-  constructor(channelName: string, redisClient: Redis) {
+  constructor(channelName: string) {
     this.channelName = channelName;
-    this.redisClient = redisClient;
   }
 
   async emit<T extends keyof typeof schema.chat>(
     event: `chat.${T}`,
     data: z.infer<(typeof schema.chat)[T]>
   ): Promise<void> {
-    const message = JSON.stringify({ event, data });
-    await this.redisClient.publish(this.channelName, message);
+    const timestamp = Date.now();
+    const message = { event, data, timestamp };
+    
+    // Store message in Redis list for polling
+    const messagesKey = `realtime:${this.channelName}`;
+    await upstashRedis.rpush(messagesKey, message);
+    
+    // Keep only last 100 messages to avoid unbounded growth
+    await upstashRedis.ltrim(messagesKey, -100, -1);
+    
+    // Set expiry on the messages list (30 minutes)
+    await upstashRedis.expire(messagesKey, 1800);
   }
 }
 
 class Realtime {
-  private redisClient: Redis;
   private schema: typeof schema;
 
   constructor(config: { schema: typeof schema }) {
     this.schema = config.schema;
-    this.redisClient = getRedisClient();
   }
 
   channel(channelName: string): RealtimeChannel {
-    return new RealtimeChannel(channelName, this.redisClient);
+    return new RealtimeChannel(channelName);
   }
 
   getSchema() {

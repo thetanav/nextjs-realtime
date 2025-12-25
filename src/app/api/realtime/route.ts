@@ -1,4 +1,4 @@
-import { getRedisClient } from "@/lib/redis";
+import { upstashRedis } from "@/lib/redis";
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const channelsParam = searchParams.get("channels");
   const eventsParam = searchParams.get("events");
+  const lastTimestamp = searchParams.get("lastTimestamp") || "0";
 
   if (!channelsParam || !eventsParam) {
     return new Response("Missing channels or events parameter", {
@@ -21,44 +22,71 @@ export async function GET(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const redisClient = getRedisClient();
-      const subscriber = redisClient.duplicate();
-
       try {
-        await subscriber.subscribe(...channels);
+        let lastSeenTimestamp = parseInt(lastTimestamp);
+        let keepAliveCounter = 0;
 
-        subscriber.on("message", (_channel: string, message: string) => {
+        // Poll for new messages every 500ms
+        const pollInterval = setInterval(async () => {
           try {
-            const parsed = JSON.parse(message);
-            // Filter by requested events
-            if (events.includes(parsed.event)) {
-              const data = `data: ${JSON.stringify(parsed)}\n\n`;
-              controller.enqueue(encoder.encode(data));
+            // Check if connection is still alive
+            if (request.signal.aborted) {
+              clearInterval(pollInterval);
+              controller.close();
+              return;
+            }
+
+            // Send keepalive every 30 seconds (60 * 500ms)
+            keepAliveCounter++;
+            if (keepAliveCounter >= 60) {
+              controller.enqueue(encoder.encode(": keepalive\n\n"));
+              keepAliveCounter = 0;
+            }
+
+            // Check each channel for new messages
+            for (const channel of channels) {
+              const messagesKey = `realtime:${channel}`;
+              
+              // Get recent messages (last 100)
+              const messages = await upstashRedis.lrange<{
+                event: string;
+                data: unknown;
+                timestamp: number;
+              }>(messagesKey, -100, -1);
+
+              // Filter messages that are newer than lastSeenTimestamp and match requested events
+              const newMessages = messages.filter(
+                (msg) =>
+                  msg.timestamp > lastSeenTimestamp &&
+                  events.includes(msg.event)
+              );
+
+              // Send new messages to client
+              for (const message of newMessages) {
+                const data = `data: ${JSON.stringify({
+                  event: message.event,
+                  data: message.data,
+                })}\n\n`;
+                controller.enqueue(encoder.encode(data));
+                
+                // Update last seen timestamp
+                if (message.timestamp > lastSeenTimestamp) {
+                  lastSeenTimestamp = message.timestamp;
+                }
+              }
             }
           } catch (error) {
-            console.error("Error processing message:", error);
+            console.error("Error polling for messages:", error);
           }
-        });
-
-        // Send keepalive ping every 30 seconds
-        const keepAliveInterval = setInterval(() => {
-          try {
-            controller.enqueue(encoder.encode(": keepalive\n\n"));
-          } catch {
-            clearInterval(keepAliveInterval);
-          }
-        }, 30000);
+        }, 500);
 
         // Handle client disconnect
-        request.signal.addEventListener("abort", async () => {
-          clearInterval(keepAliveInterval);
-          await subscriber.unsubscribe(...channels);
-          await subscriber.quit();
+        request.signal.addEventListener("abort", () => {
+          clearInterval(pollInterval);
           controller.close();
         });
       } catch (error) {
         console.error("Redis subscription error:", error);
-        await subscriber.quit();
         controller.close();
       }
     },
