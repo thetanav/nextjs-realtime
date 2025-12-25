@@ -1,11 +1,15 @@
 "use client";
 
-import { useUsername } from "@/hooks/use-username";
+import {
+  generateUsername,
+  getUsername,
+  storeUsername,
+} from "@/hooks/use-username";
 import { client } from "@/lib/client";
-import { IconLoader } from "@tabler/icons-react";
+import { IconLoader, IconRefresh } from "@tabler/icons-react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 const Page = () => {
   return (
@@ -18,7 +22,12 @@ const Page = () => {
 export default Page;
 
 function Lobby() {
-  const { username } = useUsername();
+  const [username, setUsername] = useState("");
+
+  useEffect(() => {
+    setUsername(getUsername() || generateUsername());
+  }, []);
+
   const router = useRouter();
   const [roomIdInput, setRoomIdInput] = useState("");
 
@@ -28,11 +37,16 @@ function Lobby() {
 
   const { mutate: createRoom, isPending: isCreating } = useMutation({
     mutationFn: async () => {
+      storeUsername(username);
       const res = await client.room.create.post();
 
       if (res.status === 200 && res.data?.roomId) {
         // Set the owner token in a cookie before redirecting
-        document.cookie = `x-auth-token=${res.data.ownerToken}; path=/; max-age=3600; SameSite=Strict; ${process.env.NODE_ENV === 'production' ? 'Secure;' : ''}`;
+        document.cookie = `x-auth-token=${
+          res.data.ownerToken
+        }; path=/; max-age=3600; SameSite=Strict; ${
+          process.env.NODE_ENV === "production" ? "Secure;" : ""
+        }`;
         router.push(`/room/${res.data.roomId}`);
       }
     },
@@ -40,8 +54,9 @@ function Lobby() {
 
   const { mutate: joinRoom, isPending: isJoining } = useMutation({
     mutationFn: async (roomId: string) => {
+      storeUsername(username);
       const res = await client.room.join.post({ roomId });
-      
+
       if (res.status === 200 && res.data?.roomId) {
         router.push(`/room/${res.data.roomId}`);
       } else {
@@ -80,38 +95,37 @@ function Lobby() {
 
         <div className="text-center space-y-2">
           <h1 className="text-2xl font-bold tracking-tight text-green-500">
-            {">"}private_chat
+            chugli
           </h1>
           <p className="text-zinc-500 text-sm">
-            A private, self-destructing chat room.
+            For end to end encrypted and self-destructing chat rooms.
           </p>
         </div>
 
-        <div className="border border-zinc-800 bg-zinc-900/50 p-6 backdrop-blur-md">
+        <div className="border border-zinc-800 bg-zinc-900/50 p-6 backdrop-blur-md space-y-5">
           <div className="space-y-5">
             <div className="space-y-2">
               <label className="flex items-center text-zinc-500">
-                Your Identity
+                Your Name
               </label>
 
               <div className="flex items-center gap-3">
-                <div className="flex-1 bg-zinc-950 border border-zinc-800 p-3 text-sm text-zinc-400 font-mono">
-                  {username}
-                </div>
+                <input
+                  value={username}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                  }}
+                  type="text"
+                  placeholder="Enter your username"
+                  className="flex-1 bg-zinc-950 border border-zinc-800 p-3 text-sm text-zinc-400 font-mono placeholder:text-zinc-700 focus:border-zinc-700 focus:outline-none"
+                />
+                <button onClick={() => setUsername(generateUsername())}>
+                  <IconRefresh className="w-5 h-5 text-zinc-500 active:text-zinc-300 cursor-pointer" />
+                </button>
               </div>
             </div>
-
-            <button
-              onClick={() => createRoom()}
-              disabled={isCreating}
-              className="w-full bg-zinc-100 text-black p-3 text-sm font-bold hover:bg-zinc-50 hover:text-black transition-colors mt-2 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-3">
-              {isCreating && <IconLoader className="w-5 h-5 animate-spin" />}
-              CREATE SECURE ROOM
-            </button>
           </div>
-        </div>
 
-        <div className="border border-zinc-800 bg-zinc-900/50 p-6 backdrop-blur-md">
           <div className="space-y-5">
             <div className="space-y-2">
               <label className="flex items-center text-zinc-500">
@@ -130,12 +144,34 @@ function Lobby() {
                   onClick={() => joinRoom(roomIdInput.trim())}
                   disabled={!roomIdInput.trim() || isJoining}
                   className="bg-zinc-800 text-zinc-400 px-4 py-2 text-sm font-bold hover:text-zinc-200 hover:bg-zinc-700 transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 rounded">
-                  {isJoining ? <IconLoader className="w-4 h-4 animate-spin" /> : null}
+                  {isJoining ? (
+                    <IconLoader className="w-4 h-4 animate-spin" />
+                  ) : null}
                   JOIN
                 </button>
               </div>
+              <p className="text-center my-4 text-zinc-500">or</p>
+              <button
+                onClick={() => createRoom()}
+                disabled={isCreating}
+                className="w-full bg-zinc-100 text-black p-3 text-sm font-bold hover:bg-zinc-50 hover:text-black transition-colors mt-2 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-3">
+                {isCreating && <IconLoader className="w-5 h-5 animate-spin" />}
+                CREATE SECURE ROOM
+              </button>
             </div>
           </div>
+        </div>
+        <div className="text-center">
+          <p className="text-zinc-500 text-sm">
+            developed by{" "}
+            <a
+              className="underline"
+              href="https://tanav.me"
+              target="_blank"
+              rel="noreferrer">
+              tanav
+            </a>
+          </p>
         </div>
       </div>
     </main>

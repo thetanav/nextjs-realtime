@@ -99,10 +99,11 @@ const authenticatedRooms = new Elysia({ prefix: "/room" })
         .channel(auth.roomId)
         .emit("chat.destroy", { isDestroyed: true });
 
-      await Promise.all([
-        redis.del(auth.roomId),
-        redis.del(`meta:${auth.roomId}`),
-        redis.del(`messages:${auth.roomId}`),
+      // Optimized batch delete
+      await redis.multiDel([
+        auth.roomId,
+        `meta:${auth.roomId}`,
+        `messages:${auth.roomId}`,
       ]);
     },
     { query: z.object({ roomId: z.string() }) }
@@ -113,7 +114,7 @@ const messages = new Elysia({ prefix: "/messages" })
   .post(
     "/",
     async ({ body, auth }) => {
-      const { sender, text } = body;
+      const { sender, text, replyTo } = body;
       const { roomId } = auth;
 
       const roomExists = await redis.exists(`meta:${roomId}`);
@@ -125,9 +126,11 @@ const messages = new Elysia({ prefix: "/messages" })
       const message: Message = {
         id: nanoid(),
         sender,
+        replyTo,
         text,
         timestamp: Date.now(),
         roomId,
+        encrypted: true, // Mark message as encrypted (client encrypts before sending)
       };
 
       // add message to history
@@ -137,18 +140,21 @@ const messages = new Elysia({ prefix: "/messages" })
       });
       await realtime.channel(roomId).emit("chat.message", message);
 
-      // housekeeping
+      // housekeeping - optimized with batch expire
       const remaining = await redis.ttl(`meta:${roomId}`);
 
-      await redis.expire(`messages:${roomId}`, remaining);
-      await redis.expire(`history:${roomId}`, remaining);
-      await redis.expire(roomId, remaining);
+      await redis.multiExpire([
+        { key: `messages:${roomId}`, seconds: remaining },
+        { key: `history:${roomId}`, seconds: remaining },
+        { key: roomId, seconds: remaining },
+      ]);
     },
     {
       query: z.object({ roomId: z.string() }),
       body: z.object({
         sender: z.string().max(100),
-        text: z.string().max(1000),
+        text: z.string().max(255),
+        replyTo: z.optional(z.string().max(100)),
       }),
     }
   )
