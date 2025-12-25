@@ -3,7 +3,14 @@
 import { useUsername } from "@/hooks/use-username";
 import { client } from "@/lib/client";
 import { useRealtime } from "@/lib/realtime-client";
-import { IconLoader, IconSend, IconTrash, IconLock } from "@tabler/icons-react";
+import {
+  IconLoader,
+  IconSend,
+  IconTrash,
+  IconLock,
+  IconArrowForwardUp,
+  IconX,
+} from "@tabler/icons-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { useParams, useRouter } from "next/navigation";
@@ -61,6 +68,11 @@ const Page = () => {
 
   const { username } = useUsername();
   const [input, setInput] = useState("");
+  const [replyTo, setReplyTo] = useState<{
+    id: string;
+    text: string;
+    senderName: string;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [encryptionEnabled, setEncryptionEnabled] = useState(false);
 
@@ -133,16 +145,29 @@ const Page = () => {
   );
 
   const { mutate: sendMessage, isPending } = useMutation({
-    mutationFn: async ({ text }: { text: string }) => {
+    mutationFn: async ({
+      text,
+      replyTo,
+    }: {
+      text: string;
+      replyTo: string | null;
+    }) => {
       // Encrypt the message before sending if encryption is enabled
       const messageText = encryptionEnabled
         ? await encryptMessage(text, roomId)
         : text;
 
-      await client.messages.post(
-        { sender: username, text: messageText },
-        { query: { roomId } }
-      );
+      if (replyTo) {
+        await client.messages.post(
+          { sender: username, text: messageText, replyTo },
+          { query: { roomId } }
+        );
+      } else {
+        await client.messages.post(
+          { sender: username, text: messageText },
+          { query: { roomId } }
+        );
+      }
 
       setInput("");
     },
@@ -185,63 +210,43 @@ const Page = () => {
   };
 
   return (
-    <main className="flex flex-col h-screen max-h-screen overflow-hidden">
+    <main className="flex flex-col h-screen overflow-hidden w-screen">
       <header className="border-b border-zinc-800 p-4 flex items-center justify-between bg-zinc-900/30">
         <div className="flex items-center gap-4">
           <div className="flex flex-col">
-            <span className="text-xs text-zinc-500 uppercase">Room ID</span>
-            <div className="flex items-center gap-2">
-              <span className="font-bold">{roomId}</span>
-              <button
-                onClick={copyLink}
-                className="text-[10px] bg-zinc-800 hover:bg-zinc-700 px-2 py-0.5 rounded text-zinc-400 hover:text-zinc-200 transition-colors">
-                {copyStatus}
-              </button>
-            </div>
-          </div>
-
-          <div className="h-8 w-px bg-zinc-800" />
-
-          <div className="flex flex-col">
-            <span className="text-xs text-zinc-500 uppercase">Encryption</span>
-            <div className="flex items-center gap-1.5">
+            <div className="flex gap-2 items-center">
+              <span className="text-xs text-zinc-500 uppercase">Room ID</span>
+              <span
+                className={`text-sm font-bold flex items-center gap-2 ${
+                  countdown !== null && countdown < 60
+                    ? "text-red-500"
+                    : "text-amber-500"
+                }`}>
+                {countdown !== null ? formatTimeRemaining(countdown) : "--:--"}{" "}
+                ENC
+              </span>
               <IconLock
-                className={`w-3 h-3 ${
+                className={`w-4 h-4 ${
                   encryptionEnabled ? "text-green-500" : "text-zinc-600"
                 }`}
               />
-              <span
-                className={`text-xs font-bold ${
-                  encryptionEnabled ? "text-green-500" : "text-zinc-600"
-                }`}>
-                {encryptionEnabled ? "ENABLED" : "DISABLED"}
-              </span>
             </div>
-          </div>
-
-          <div className="h-8 w-px bg-zinc-800" />
-
-          <div className="flex flex-col">
-            <span className="text-xs text-zinc-500 uppercase">
-              Self-Destruct
-            </span>
-            <span
-              className={`text-sm font-bold flex items-center gap-2 ${
-                countdown !== null && countdown < 60
-                  ? "text-red-500"
-                  : "text-amber-500"
-              }`}>
-              {countdown !== null ? formatTimeRemaining(countdown) : "--:--"}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-bold ellipse">{roomId}</span>
+              <button
+                onClick={copyLink}
+                className="text-[10px] bg-zinc-800 active:bg-zinc-700 px-2 py-0.5 rounded text-zinc-400 active:text-zinc-200 transition-colors">
+                {copyStatus}
+              </button>
+            </div>
           </div>
         </div>
 
         {isSudo && isSudo.owner && (
           <button
             onClick={() => destroyRoom()}
-            className="text-xs bg-zinc-800 hover:bg-red-600 px-3 py-1.5 rounded text-zinc-400 hover:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50 cursor-pointer">
-            <span className="group-hover:animate-pulse">💣</span>
-            DESTROY NOW
+            className="text-md border-2 border-zinc-800 active:bg-red-600 active:border-red-600 p-2 rounded text-zinc-400 active:text-white font-bold transition-all group flex items-center gap-2 disabled:opacity-50 cursor-pointer">
+            <span className="group-active:animate-pulse">💣</span>
           </button>
         )}
       </header>
@@ -250,66 +255,92 @@ const Page = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
         {decryptedMessages.length === 0 && (
           <div className="flex items-center justify-center h-full">
-            <p className="text-zinc-600 text-sm font-mono">
-              No messages yet, start the conversation.
-            </p>
+            <p className="text-zinc-600 text-sm font-mono">No messages yet.</p>
           </div>
         )}
 
         {decryptedMessages.map((msg) => (
-          <div key={msg.id} className="flex flex-col w-fit">
-            <div className="flex gap-3 mb-1 items-center">
-              <span
-                className={`text-sm font-bold ${
-                  msg.sender === username ? "text-green-500" : "text-blue-500"
-                }`}>
-                {msg.sender}
-              </span>
-              <span className="text-xs text-zinc-400">
-                {format(msg.timestamp, "HH:mm")}
-              </span>
-              {isSudo && isSudo.owner && (
-                <button onClick={() => deleteMessage(msg.id)}>
-                  <IconTrash className="w-5 h-5 text-zinc-500 hover:text-zinc-300  cursor-pointer" />
+          <div key={msg.id} className="flex flex-col w-full">
+            <div className="flex mb-1 items-center justify-between w-full">
+              <div className="flex gap-2 items-center">
+                <span
+                  className={`text-sm font-bold ${
+                    msg.sender === username ? "text-green-500" : "text-blue-500"
+                  }`}>
+                  {msg.sender}
+                </span>
+                <span className="text-xs text-zinc-400">
+                  {format(msg.timestamp, "HH:mm")}
+                </span>
+              </div>
+              <div className="flex gap-2 items-center">
+                {isSudo && isSudo.owner && (
+                  <button onClick={() => deleteMessage(msg.id)}>
+                    <IconTrash className="w-5 h-5 text-zinc-500 active:text-zinc-300 cursor-pointer" />
+                  </button>
+                )}
+                <button
+                  onClick={() =>
+                    setReplyTo({
+                      id: msg.id,
+                      text: msg.text,
+                      senderName: msg.sender,
+                    })
+                  }>
+                  <IconArrowForwardUp className="w-5 h-5 text-zinc-500 active:text-zinc-300 cursor-pointer" />
                 </button>
-              )}
+              </div>
             </div>
 
-            <p className="text-sm text-zinc-300 py-2 px-4 bg-zinc-700 rounded-xl">
-              {msg.text}
-            </p>
+            <p className="text-sm text-zinc-300">{msg.text}</p>
           </div>
         ))}
       </div>
 
-      <div className="p-4">
-        <div className="flex gap-2">
-          <div className="flex-1 relative group">
-            <input
+      <div className="p-2">
+        <div className="flex items-end gap-2">
+          <div className="flex-1 relative group w-full bg-black border rounded-md border-zinc-600 focus:border-zinc-500 focus:outline-none transition-colors p-3 h-fit">
+            {replyTo && (
+              <div className="mb-3 animate-in fade-in fade-out slide-out-to-top-10 slide-in-from-bottom-10 flex items-center justify-between">
+                <div>
+                  <div className="flex gap-2 items-center">
+                    <IconArrowForwardUp className="w-5 h-5 text-zinc-500" />
+                    {replyTo.senderName}
+                  </div>
+                  <p className="text-sm text-zinc-300 text-ellipsis max-w-full line-clamp-1">
+                    {replyTo.text}
+                  </p>
+                </div>
+                <button className="mr-2" onClick={() => setReplyTo(null)}>
+                  <IconX className="w-5 h-5 text-zinc-500 active:text-zinc-300 cursor-pointer" />
+                </button>
+              </div>
+            )}
+            <textarea
               autoFocus
-              type="text"
               value={input}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && input.trim()) {
-                  sendMessage({ text: input });
-                  inputRef.current?.focus();
-                }
-              }}
-              placeholder="Type message..."
+              // onKeyDown={(e) => {
+              //   if (e.key === "Enter" && input.trim()) {
+              //     sendMessage({ text: input, replyTo: replyTo?.id! });
+              //     inputRef.current?.focus();
+              //   }
+              // }}
+              placeholder="Message..."
               onChange={(e) => setInput(e.target.value)}
-              className="w-full bg-black border rounded-full border-zinc-600 focus:border-zinc-500 focus:outline-none transition-colors text-zinc-100 placeholder:text-zinc-400 py-3 px-5 text-md"
+              // the text area should increase in height as the user types
+              className="outline-none border-none text-zinc-100 placeholder:text-zinc-400 text-md resize-y appearance-none min-h-5 max-h-36 w-full"
             />
           </div>
 
           <button
             onClick={() => {
-              sendMessage({ text: input });
+              sendMessage({ text: input, replyTo: replyTo?.id! });
               inputRef.current?.focus();
             }}
             disabled={!input.trim() || isPending}
-            className="bg-zinc-800 text-zinc-400 px-4 text-sm font-bold hover:text-zinc-200 hover:bg-zinc-700 transition-all disabled:cursor-not-allowed cursor-pointer flex gap-2 items-center justify-center rounded-full">
+            className="text-zinc-400 py-4 px-2 text-sm font-bold active:text-zinc-200 transition-all disabled:cursor-not-allowed cursor-pointer flex gap-2 items-center justify-center rounded-full">
             {isPending ? (
-              <IconLoader className="animate-spin w-4 h-4" />
+              <IconLoader className="animate-spin w-5 h-5" />
             ) : (
               <IconSend className="w-5 h-5" />
             )}

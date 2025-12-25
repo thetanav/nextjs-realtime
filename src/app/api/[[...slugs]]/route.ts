@@ -114,7 +114,7 @@ const messages = new Elysia({ prefix: "/messages" })
   .post(
     "/",
     async ({ body, auth }) => {
-      const { sender, text } = body;
+      const { sender, text, replyTo } = body;
       const { roomId } = auth;
 
       const roomExists = await redis.exists(`meta:${roomId}`);
@@ -126,6 +126,7 @@ const messages = new Elysia({ prefix: "/messages" })
       const message: Message = {
         id: nanoid(),
         sender,
+        replyTo,
         text,
         timestamp: Date.now(),
         roomId,
@@ -152,7 +153,8 @@ const messages = new Elysia({ prefix: "/messages" })
       query: z.object({ roomId: z.string() }),
       body: z.object({
         sender: z.string().max(100),
-        text: z.string().max(1000),
+        text: z.string().max(255),
+        replyTo: z.optional(z.string().max(100)),
       }),
     }
   )

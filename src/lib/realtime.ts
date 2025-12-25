@@ -5,6 +5,7 @@ import type Redis from "ioredis";
 const message = z.object({
   id: z.string(),
   sender: z.string(),
+  replyTo: z.optional(z.string()),
   text: z.string(),
   timestamp: z.number(),
   roomId: z.string(),
