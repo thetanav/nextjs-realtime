@@ -223,7 +223,6 @@ const Page = () => {
                     : "text-amber-500"
                 }`}>
                 {countdown !== null ? formatTimeRemaining(countdown) : "--:--"}{" "}
-                ENC
               </span>
               <IconLock
                 className={`w-4 h-4 ${
@@ -259,42 +258,68 @@ const Page = () => {
           </div>
         )}
 
-        {decryptedMessages.map((msg) => (
-          <div key={msg.id} className="flex flex-col w-full">
-            <div className="flex mb-1 items-center justify-between w-full">
-              <div className="flex gap-2 items-center">
-                <span
-                  className={`text-sm font-bold ${
-                    msg.sender === username ? "text-green-500" : "text-blue-500"
-                  }`}>
-                  {msg.sender}
-                </span>
-                <span className="text-xs text-zinc-400">
-                  {format(msg.timestamp, "HH:mm")}
-                </span>
-              </div>
-              <div className="flex gap-2 items-center">
-                {isSudo && isSudo.owner && (
-                  <button onClick={() => deleteMessage(msg.id)}>
-                    <IconTrash className="w-5 h-5 text-zinc-500 active:text-zinc-300 cursor-pointer" />
-                  </button>
-                )}
-                <button
-                  onClick={() =>
-                    setReplyTo({
-                      id: msg.id,
-                      text: msg.text,
-                      senderName: msg.sender,
-                    })
-                  }>
-                  <IconArrowForwardUp className="w-5 h-5 text-zinc-500 active:text-zinc-300 cursor-pointer" />
-                </button>
-              </div>
-            </div>
+        {decryptedMessages.map((msg) => {
+          // Find the original message being replied to
+          const repliedMessage = msg.replyTo
+            ? decryptedMessages.find((m) => m.id === msg.replyTo)
+            : null;
 
-            <p className="text-sm text-zinc-300">{msg.text}</p>
-          </div>
-        ))}
+          return (
+            <div key={msg.id} className="flex flex-col w-full">
+              <div className="flex mb-1 items-center justify-between w-full">
+                <div className="flex gap-2 items-center">
+                  <span
+                    className={`text-sm font-bold ${
+                      msg.sender === username
+                        ? "text-green-500"
+                        : "text-blue-500"
+                    }`}>
+                    {msg.sender}
+                  </span>
+                  <span className="text-xs text-zinc-400">
+                    {format(msg.timestamp, "HH:mm")}
+                  </span>
+                </div>
+                <div className="flex gap-2 items-center">
+                  {isSudo && isSudo.owner && (
+                    <button onClick={() => deleteMessage(msg.id)}>
+                      <IconTrash className="w-5 h-5 text-zinc-500 active:text-zinc-300 cursor-pointer" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() =>
+                      setReplyTo({
+                        id: msg.id,
+                        text: msg.text,
+                        senderName: msg.sender,
+                      })
+                    }>
+                    <IconArrowForwardUp className="w-5 h-5 text-zinc-500 active:text-zinc-300 cursor-pointer" />
+                  </button>
+                </div>
+              </div>
+
+              {/* WhatsApp-style reply indicator */}
+              {repliedMessage && (
+                <div className="mb-2 pl-3 border-l-2 border-blue-500 bg-zinc-800/50 rounded-r-md py-1.5 pr-2">
+                  <span
+                    className={`text-xs font-semibold ${
+                      repliedMessage.sender === username
+                        ? "text-green-400"
+                        : "text-blue-400"
+                    }`}>
+                    {repliedMessage.sender}
+                  </span>
+                  <p className="text-xs text-zinc-400 line-clamp-1">
+                    {repliedMessage.text}
+                  </p>
+                </div>
+              )}
+
+              <p className="text-sm text-zinc-300">{msg.text}</p>
+            </div>
+          );
+        })}
       </div>
 
       <div className="p-2">
