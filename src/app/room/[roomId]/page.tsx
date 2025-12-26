@@ -27,19 +27,15 @@ function formatTimeRemaining(seconds: number) {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
-// Helper hook to decrypt messages
 function useDecryptedMessages(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   messages: any[] | undefined,
   roomId: string,
   encryptionEnabled: boolean
 ) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [decryptedMessages, setDecryptedMessages] = useState<any[]>([]);
 
   useEffect(() => {
     if (!messages || !encryptionEnabled) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDecryptedMessages(messages || []);
       return;
     }
@@ -79,29 +75,25 @@ const Page = () => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [encryptionEnabled, setEncryptionEnabled] = useState(false);
 
-  // Auto-resize textarea based on content
   const adjustTextareaHeight = () => {
     const textarea = inputRef.current;
     if (textarea) {
       textarea.style.height = "auto";
       const scrollHeight = textarea.scrollHeight;
-      // Max height is 144px (max-h-36 = 36*4px = 144px)
       textarea.style.height = Math.min(scrollHeight, 144) + "px";
     }
   };
 
-  // Adjust height when input changes
   useEffect(() => {
     adjustTextareaHeight();
   }, [input]);
 
   const [copyStatus, setCopyStatus] = useState("COPY");
 
-  // Check if encryption is supported
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEncryptionEnabled(isEncryptionSupported());
   }, []);
+
   const { data: ttlData } = useQuery({
     queryKey: ["ttl", roomId],
     queryFn: async () => {
@@ -114,7 +106,6 @@ const Page = () => {
     queryKey: ["sudo", roomId],
     queryFn: async () => {
       const res = await client.room.sudo.get({ query: { roomId } });
-      console.log("sudo", res.data);
       return res.data;
     },
   });
@@ -123,7 +114,6 @@ const Page = () => {
 
   useEffect(() => {
     if (ttlData?.ttl !== undefined && countdown === null) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCountdown(ttlData.ttl);
     }
   }, [ttlData, countdown]);
@@ -157,7 +147,6 @@ const Page = () => {
     },
   });
 
-  // Decrypt messages if encryption is enabled
   const decryptedMessages = useDecryptedMessages(
     messages?.messages,
     roomId,
@@ -172,7 +161,6 @@ const Page = () => {
       text: string;
       replyTo: string | null;
     }) => {
-      // Encrypt the message before sending if encryption is enabled
       const messageText = encryptionEnabled
         ? await encryptMessage(text, roomId)
         : text;
@@ -270,7 +258,6 @@ const Page = () => {
         )}
       </header>
 
-      {/* MESSAGES */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
         {decryptedMessages.length === 0 && (
           <div className="flex items-center justify-center h-full">
@@ -279,7 +266,6 @@ const Page = () => {
         )}
 
         {decryptedMessages.map((msg) => {
-          // Find the original message being replied to
           const repliedMessage = msg.replyTo
             ? decryptedMessages.find((m) => m.id === msg.replyTo)
             : null;
@@ -319,7 +305,6 @@ const Page = () => {
                 </div>
               </div>
 
-              {/* WhatsApp-style reply indicator */}
               {repliedMessage && (
                 <div className="mb-2 pl-3 border-l-2 border-blue-500 bg-zinc-800/50 py-1.5 pr-2">
                   <span
@@ -366,13 +351,11 @@ const Page = () => {
               autoFocus
               value={input}
               onKeyDown={(e) => {
-                // Send message on Enter (without Shift)
                 if (e.key === "Enter" && !e.shiftKey && input.trim()) {
                   e.preventDefault();
                   sendMessage({ text: input, replyTo: replyTo?.id || null });
                   inputRef.current?.focus();
                 }
-                // Shift+Enter creates a new line (default behavior)
               }}
               placeholder="Message"
               cols={1}
